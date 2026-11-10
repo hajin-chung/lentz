@@ -30,6 +30,63 @@ npm start -- --host "$(tailscale ip -4)" --root "$HOME"
 
 Keep the server process running in tmux or a service if you want it to survive SSH disconnects. Browser disconnects do not stop agents. Restarting the Lentz server is different: transcripts persist, but automatic recovery of interrupted model/tool execution is not part of this version.
 
+## Docker Compose
+
+`Dockerfile` builds the frontend in a separate stage and runs the server as a non-root user on Node.js 24, with pi **1.4.0** installed. The runtime includes Bash, Git, curl, and ripgrep; tools installed only on the host are not automatically available inside the container. Add project-specific tools in a derived image as needed.
+
+The example `docker-compose.yaml` follows the `~/compose` convention: `restart: unless-stopped`, UID/GID `1000:1000`, and the external `proxy` network for Caddy. From this repository:
+
+```bash
+# Only if the shared network does not already exist:
+docker network inspect proxy >/dev/null 2>&1 || docker network create proxy
+
+docker compose up -d --build
+docker compose logs -f lentz
+```
+
+Or keep the deployment under `~/compose/lentz`:
+
+```bash
+mkdir -p ~/compose/lentz
+cp ~/projects/lentz/docker-compose.yaml ~/compose/lentz/docker-compose.yaml
+cd ~/compose/lentz
+printf 'LENTZ_SOURCE=../../projects/lentz\n' > .env
+docker compose up -d --build
+```
+
+Optional Compose variables in `.env`:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `LENTZ_SOURCE` | `.` | Build context, relative to the Compose file |
+| `LENTZ_HOME` | `/home/hajin` | Host home directory, mounted at the identical container path |
+| `PI_VERSION` | `1.4.0` | Installed pi version; changing it requires a rebuild |
+| `LENTZ_BIND_IP` | `127.0.0.1` | Used only if the commented `ports` mapping is enabled |
+
+The same-path home mount is intentional: saved pi sessions contain absolute working directories. It also reuses `~/.pi` configuration, sign-ins, extensions, and native session files. Match `user` to the owner of the mounted files if your UID/GID differs; the image's writable directories and a new `lentz-data` volume are owned by `1000:1000` by default and need matching ownership if changed. Mount any additional directories needed by your sessions at their original absolute paths. Extensions or provider configuration that invoke host-only programs may need those programs installed in the image too. No credentials are copied into the image.
+
+Workspace layouts/preferences persist in the `lentz-data` named volume at `/var/lib/lentz`, separate from pi transcripts in the mounted home. To reuse the native server's existing layouts instead, replace `lentz-data:/var/lib/lentz` with `/home/hajin/.local/share/lentz:/var/lib/lentz` and stop the native server before starting Compose. Do not share a data directory between running servers, or attach the same session with independent pi processes.
+
+### Access through Caddy or Tailscale
+
+No host port is published by default. Add a site to your existing Caddy configuration, using your own private hostname:
+
+```caddyfile
+lentz.example.com {
+    reverse_proxy lentz:4317
+}
+```
+
+Both containers must use the `proxy` network. Alternatively, uncomment the `ports` mapping in `docker-compose.yaml`, set `LENTZ_BIND_IP` to the host's Tailscale IPv4 address (`tailscale ip -4`), and recreate the service. Then open `http://<tailscale-ip>:4317`.
+
+**Lentz has no authentication. Keep access restricted to your tailnet/trusted network; HTTPS alone is not access control.** The example grants the browser file API and pi access to your home, including sensitive files. Pi commands run inside the container as UID 1000, with read/write access to all bind-mounted files. Do not mount the Docker socket or run the container privileged.
+
+If your provider uses environment-variable API keys instead of pi's saved sign-ins, explicitly pass the required variables in the service's `environment` section. Compose's `.env` file supplies interpolation values; it does not automatically pass every variable into the container.
+
+Update with `docker compose up -d --build`. `docker compose down` preserves the named volume; **`docker compose down -v` deletes saved layouts/preferences**. Rebuilding/restarting does not resume interrupted model/tool execution. Inspect startup/health with `docker compose ps` and `docker compose logs lentz`.
+
+After building, `npm run test:docker` verifies health, frontend serving, pi RPC session creation, paginated history/full-body retrieval, clean restart, and persistence across container recreation. It uses a temporary home and named volume, publishes only a random loopback port, and sends no model prompt or host credentials. Set `LENTZ_TEST_IMAGE` to test a different image tag.
+
 ## Startup options
 
 Pass flags after `--` with either `npm start` or `npm run dev`.

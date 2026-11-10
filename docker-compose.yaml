@@ -1,0 +1,41 @@
+services:
+  lentz:
+    image: lentz:0.1.0
+    build:
+      # Set LENTZ_SOURCE=../../projects/lentz when copied to ~/compose/lentz.
+      context: ${LENTZ_SOURCE:-.}
+      args:
+        PI_VERSION: ${PI_VERSION:-1.4.0}
+    container_name: lentz
+    restart: unless-stopped
+    init: true
+    user: '1000:1000'
+    stop_grace_period: 30s
+    environment:
+      # Keep native session cwd paths valid and reuse pi's configuration/sign-ins.
+      HOME: ${LENTZ_HOME:-/home/hajin}
+      LENTZ_ROOT: ${LENTZ_HOME:-/home/hajin}
+      LENTZ_HOST: 0.0.0.0
+      LENTZ_PORT: '4317'
+      LENTZ_DATA_DIR: /var/lib/lentz
+    volumes:
+      # Intentionally grants pi read/write access to this home directory.
+      - type: bind
+        source: ${LENTZ_HOME:-/home/hajin}
+        target: ${LENTZ_HOME:-/home/hajin}
+        bind:
+          create_host_path: false
+      - lentz-data:/var/lib/lentz
+    # Caddy connects to lentz:4317 over the shared network; no public host port.
+    networks:
+      - proxy
+    # For direct Tailscale access instead, uncomment and set LENTZ_BIND_IP.
+    # ports:
+    #   - "${LENTZ_BIND_IP:-127.0.0.1}:4317:4317"
+
+volumes:
+  lentz-data:
+
+networks:
+  proxy:
+    external: true

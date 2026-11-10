@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+.lentz
+playwright-report
+test-results
+*.log
+.env
+.env.*
+**/.env
+**/.env.*
+**/.pi
+**/.ssh
+**/*.pem
+**/*.key
